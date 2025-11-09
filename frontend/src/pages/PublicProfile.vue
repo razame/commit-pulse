@@ -72,7 +72,8 @@ const formatDate = (dateString) => {
 onMounted(async () => {
   try {
     const username = route.params.username
-    const response = await axios.get(`http://localhost:8000/api/public/${username}`)
+    // Use relative URL to go through Vite proxy
+    const response = await axios.get(`/api/public/${username}`)
     user.value = response.data.user
     stats.value = response.data.stats
   } catch (err) {

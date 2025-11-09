@@ -37,8 +37,24 @@
           </p>
         </div>
 
+        <!-- No Data Message -->
+        <div v-if="stats.total_commits === 0" class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-8">
+          <div class="flex items-start gap-4">
+            <div class="text-2xl">📭</div>
+            <div class="flex-1">
+              <h3 class="text-lg font-semibold text-yellow-900 mb-2">No commits found for this week</h3>
+              <p class="text-yellow-800 mb-4">
+                Click "Sync Now" below to fetch your commits from GitHub. Make sure the worker is running for the sync to complete.
+              </p>
+              <p class="text-sm text-yellow-700">
+                <strong>Note:</strong> The worker needs to be running for sync to work. See SETUP.md for instructions on starting the worker.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Stats Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div v-if="stats.total_commits > 0" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatCard
             title="Total Commits"
             :value="stats.total_commits"
@@ -47,20 +63,20 @@
           />
           <StatCard
             title="Lines Added"
-            :value="stats.total_additions.toLocaleString()"
+            :value="(stats.total_additions || 0).toLocaleString()"
             icon="➕"
             color="bg-green-500"
           />
           <StatCard
             title="Lines Removed"
-            :value="stats.total_deletions.toLocaleString()"
+            :value="(stats.total_deletions || 0).toLocaleString()"
             icon="➖"
             color="bg-red-500"
           />
         </div>
 
         <!-- Charts Row -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div v-if="stats.total_commits > 0" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <div class="bg-white rounded-lg shadow p-6">
             <h3 class="text-lg font-semibold mb-4">Commits by Day</h3>
             <WeeklyChart :data="commitsByDayData" />
@@ -73,7 +89,7 @@
         </div>
 
         <!-- Top Repos -->
-        <div class="bg-white rounded-lg shadow p-6 mb-8">
+        <div v-if="stats.total_commits > 0 && stats.top_repos && stats.top_repos.length > 0" class="bg-white rounded-lg shadow p-6 mb-8">
           <h3 class="text-lg font-semibold mb-4">Most Active Repositories</h3>
           <div class="space-y-3">
             <div
@@ -165,17 +181,31 @@ const fetchStats = async () => {
     loading.value = true
     error.value = null
     
-    const token = localStorage.getItem('auth_token')
-    const response = await axios.get('http://localhost:8000/api/stats/current-week', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
+    // Use relative URL to go through Vite proxy
+    // Session-based authentication via cookies (configured in main.js)
+    const response = await axios.get('/api/stats/current-week')
     
     stats.value = response.data
   } catch (err) {
-    error.value = 'Failed to load stats. Please try again.'
-    console.error(err)
+    if (err.response) {
+      // Server responded with error status
+      if (err.response.status === 401) {
+        error.value = 'Authentication failed. Please log in again.'
+        localStorage.removeItem('auth_token')
+        router.push('/')
+      } else if (err.response.status === 500) {
+        error.value = 'Server error. Please try again later.'
+      } else {
+        error.value = `Failed to load stats: ${err.response.data?.message || err.response.statusText || 'Unknown error'}`
+      }
+    } else if (err.request) {
+      // Request made but no response received
+      error.value = 'Unable to connect to server. Please check your connection.'
+    } else {
+      // Error setting up the request
+      error.value = 'Failed to load stats. Please try again.'
+    }
+    console.error('Stats loading error:', err)
   } finally {
     loading.value = false
   }
@@ -184,27 +214,40 @@ const fetchStats = async () => {
 const syncData = async () => {
   try {
     syncing.value = true
-    const token = localStorage.getItem('auth_token')
-    await axios.post('http://localhost:8000/api/sync', {}, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
+    error.value = null
+    // Use relative URL to go through Vite proxy
+    // Session-based authentication via cookies (configured in main.js)
+    const response = await axios.post('/api/sync', {})
     
-    // Refresh stats after sync
+    // Show success message
+    if (response.data?.message) {
+      // You could show a toast notification here
+      console.log(response.data.message)
+    }
+    
+    // Refresh stats after a longer delay to allow worker to process
     setTimeout(() => {
       fetchStats()
-    }, 2000)
+    }, 5000) // Increased delay to give worker time
   } catch (err) {
-    error.value = 'Sync failed. Please try again.'
+    if (err.response) {
+      error.value = err.response.data?.message || 'Sync failed. Please try again.'
+    } else {
+      error.value = 'Sync failed. Please make sure the worker is running. See SETUP.md for instructions.'
+    }
     console.error(err)
   } finally {
     syncing.value = false
   }
 }
 
-const logout = () => {
-  localStorage.removeItem('auth_token')
+const logout = async () => {
+  try {
+    // Call backend logout endpoint to clear session
+    await axios.post('/auth/logout')
+  } catch (err) {
+    console.error('Logout error:', err)
+  }
   router.push('/')
 }
 

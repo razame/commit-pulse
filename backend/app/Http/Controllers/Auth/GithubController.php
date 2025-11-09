@@ -45,9 +45,17 @@ class GithubController extends Controller
         }
     }
 
-    public function logout()
+    public function logout(Request $request)
     {
         Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+        
+        // Return JSON for API requests, redirect for web requests
+        if ($request->expectsJson() || $request->is('api/*')) {
+            return response()->json(['message' => 'Logged out successfully']);
+        }
+        
         $frontendUrl = env('FRONTEND_URL', 'http://localhost:3000');
         return redirect($frontendUrl);
     }

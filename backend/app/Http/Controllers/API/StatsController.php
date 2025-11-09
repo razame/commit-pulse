@@ -15,18 +15,30 @@ class StatsController extends Controller
     {
         $user = Auth::user();
         
-        $weekStart = Carbon::now()->startOfWeek();
-        $weekEnd = Carbon::now()->endOfWeek();
+        $weekStart = Carbon::now()->startOfWeek()->startOfDay();
+        $weekEnd = Carbon::now()->endOfWeek()->endOfDay();
 
-        $commits = Commit::where('user_id', $user->id)
-            ->whereBetween('date', [$weekStart, $weekEnd])
+        // Eager load repository relationship to avoid N+1 queries
+        $commits = Commit::with('repository')
+            ->where('user_id', $user->id)
+            ->whereBetween('date', [
+                $weekStart->format('Y-m-d'),
+                $weekEnd->format('Y-m-d')
+            ])
             ->get();
 
+        // Group commits by day of week (Mon, Tue, etc.)
+        // Carbon's dayOfWeek: 0=Sunday, 1=Monday, ..., 6=Saturday
+        // We want: Mon=0, Tue=1, ..., Sun=6
         $commitsByDay = $commits->groupBy(function ($commit) {
-            return $commit->date->format('Y-m-d');
+            $dayOfWeek = $commit->date->dayOfWeek;
+            $days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            // Convert: 0(Sun)->6, 1(Mon)->0, 2(Tue)->1, ..., 6(Sat)->5
+            $index = $dayOfWeek == 0 ? 6 : $dayOfWeek - 1;
+            return $days[$index];
         })->map(function ($dayCommits) {
             return $dayCommits->count();
-        });
+        })->toArray();
 
         $totalCommits = $commits->count();
         $totalAdditions = $commits->sum('additions');
@@ -34,11 +46,17 @@ class StatsController extends Controller
 
         $topRepos = $commits->groupBy('repo_id')
             ->map(function ($repoCommits) {
+                $firstCommit = $repoCommits->first();
+                // Add null check for repository
+                if (!$firstCommit || !$firstCommit->repository) {
+                    return null;
+                }
                 return [
                     'count' => $repoCommits->count(),
-                    'repo' => $repoCommits->first()->repository->repo_name,
+                    'repo' => $firstCommit->repository->repo_name,
                 ];
             })
+            ->filter() // Remove null entries
             ->sortByDesc('count')
             ->take(5)
             ->values();
@@ -56,11 +74,11 @@ class StatsController extends Controller
             'week_start' => $weekStart->format('Y-m-d'),
             'week_end' => $weekEnd->format('Y-m-d'),
             'total_commits' => $totalCommits,
-            'total_additions' => $totalAdditions,
-            'total_deletions' => $totalDeletions,
+            'total_additions' => $totalAdditions ?? 0,
+            'total_deletions' => $totalDeletions ?? 0,
             'commits_by_day' => $commitsByDay,
-            'top_repos' => $topRepos,
-            'top_languages' => $topLanguages,
+            'top_repos' => $topRepos->toArray(),
+            'top_languages' => $topLanguages->toArray(),
             'last_synced_at' => $user->last_synced_at?->toIso8601String(),
         ]);
     }
@@ -69,12 +87,11 @@ class StatsController extends Controller
     {
         $user = Auth::user();
         
-        // This endpoint will be called by the Golang worker
-        // For now, return a success response
-        // The actual sync logic will be handled by the worker
+        // Dispatch the job to fetch commits from GitHub
+        \App\Jobs\FetchCommitsJob::dispatch($user);
         
         return response()->json([
-            'message' => 'Sync initiated. Data will be updated shortly.',
+            'message' => 'Sync initiated. Your commits are being fetched from GitHub. This may take a few moments.',
         ]);
     }
 }
