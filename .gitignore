@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+vendor/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Laravel
+backend/storage/
+backend/bootstrap/cache/
+
+# Vue
+frontend/node_modules/
+frontend/dist/
+
+# Go
+worker/*.exe
+worker/go.sum
+
