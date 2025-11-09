@@ -77,7 +77,7 @@ class CommitsController extends Controller
         $user->update(['last_synced_at' => now()]);
 
         return response()->json([
-            'message' => 'Commits synced successfully',
+            'message'       => 'Commits synced successfully',
             'commits_count' => count($data['commits']),
         ]);
     }
