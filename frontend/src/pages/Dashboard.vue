@@ -28,12 +28,15 @@
         <p class="text-red-800">{{ error }}</p>
       </div>
 
-      <div v-else>
+      <div v-else-if="stats && (stats.week_start || stats.total_commits !== undefined)">
         <!-- Hero Section -->
         <div class="mb-8">
           <h2 class="text-3xl font-bold text-gray-900 mb-2">Your Weekly Pulse</h2>
-          <p class="text-gray-600">
+          <p class="text-gray-600" v-if="stats.week_start">
             Week of {{ formatDate(stats.week_start) }} - {{ formatDate(stats.week_end) }}
+          </p>
+          <p class="text-gray-600" v-else>
+            Loading week information...
           </p>
         </div>
 
@@ -44,10 +47,13 @@
             <div class="flex-1">
               <h3 class="text-lg font-semibold text-yellow-900 mb-2">No commits found for this week</h3>
               <p class="text-yellow-800 mb-4">
-                Click "Sync Now" below to fetch your commits from GitHub. Make sure the worker is running for the sync to complete.
+                Click "Sync Now" below to fetch your commits from GitHub. The sync will fetch commits from the last 7 days.
+              </p>
+              <p class="text-sm text-yellow-700 mb-2">
+                <strong>Note:</strong> The sync job runs in the background. If you're using queues, make sure to run <code class="bg-yellow-100 px-1 rounded">php artisan queue:work</code> in your backend directory.
               </p>
               <p class="text-sm text-yellow-700">
-                <strong>Note:</strong> The worker needs to be running for sync to work. See SETUP.md for instructions on starting the worker.
+                Alternatively, set <code class="bg-yellow-100 px-1 rounded">QUEUE_CONNECTION=sync</code> in your <code class="bg-yellow-100 px-1 rounded">.env</code> file to run jobs immediately.
               </p>
             </div>
           </div>
@@ -134,7 +140,17 @@ import StatCard from '../components/StatCard.vue'
 const router = useRouter()
 const loading = ref(true)
 const error = ref(null)
-const stats = ref({})
+const stats = ref({
+  week_start: '',
+  week_end: '',
+  total_commits: 0,
+  total_additions: 0,
+  total_deletions: 0,
+  commits_by_day: {},
+  top_repos: [],
+  top_languages: {},
+  last_synced_at: null,
+})
 const syncing = ref(false)
 
 const commitsByDayData = computed(() => {
@@ -181,11 +197,27 @@ const fetchStats = async () => {
     loading.value = true
     error.value = null
     
-    // Use relative URL to go through Vite proxy
+    // Direct API call to backend
     // Session-based authentication via cookies (configured in main.js)
     const response = await axios.get('/api/stats/current-week')
     
-    stats.value = response.data
+    // Debug: Log the response
+    console.log('Stats API Response:', response.data)
+    
+    // Ensure stats object has required properties
+    stats.value = {
+      week_start: response.data.week_start || '',
+      week_end: response.data.week_end || '',
+      total_commits: response.data.total_commits || 0,
+      total_additions: response.data.total_additions || 0,
+      total_deletions: response.data.total_deletions || 0,
+      commits_by_day: response.data.commits_by_day || {},
+      top_repos: response.data.top_repos || [],
+      top_languages: response.data.top_languages || {},
+      last_synced_at: response.data.last_synced_at || null,
+    }
+    
+    console.log('Stats value set:', stats.value)
   } catch (err) {
     if (err.response) {
       // Server responded with error status
@@ -215,7 +247,7 @@ const syncData = async () => {
   try {
     syncing.value = true
     error.value = null
-    // Use relative URL to go through Vite proxy
+    // Direct API call to backend
     // Session-based authentication via cookies (configured in main.js)
     const response = await axios.post('/api/sync', {})
     

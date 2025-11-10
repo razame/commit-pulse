@@ -9,7 +9,8 @@ import Settings from './pages/Settings.vue'
 import PublicProfile from './pages/PublicProfile.vue'
 import Login from './pages/Login.vue'
 
-// Configure axios to send cookies for session-based authentication
+// Configure axios base URL and credentials
+axios.defaults.baseURL = 'http://localhost:8000'
 axios.defaults.withCredentials = true
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest'
 
