@@ -70,6 +70,19 @@ class StatsController extends Controller
             ->get()
             ->pluck('count', 'language');
 
+        // Format commits for frontend
+        $commitsList = $commits->map(function ($commit) {
+            return [
+                'id' => $commit->id,
+                'date' => $commit->date->format('Y-m-d'),
+                'message' => $commit->message,
+                'additions' => $commit->additions,
+                'deletions' => $commit->deletions,
+                'total_changes' => $commit->total_changes,
+                'repository' => $commit->repository ? $commit->repository->repo_name : null,
+            ];
+        })->sortByDesc('date')->values();
+
         return response()->json([
             'week_start' => $weekStart->format('Y-m-d'),
             'week_end' => $weekEnd->format('Y-m-d'),
@@ -79,6 +92,7 @@ class StatsController extends Controller
             'commits_by_day' => $commitsByDay,
             'top_repos' => $topRepos->toArray(),
             'top_languages' => $topLanguages->toArray(),
+            'commits' => $commitsList->toArray(),
             'last_synced_at' => $user->last_synced_at?->toIso8601String(),
         ]);
     }

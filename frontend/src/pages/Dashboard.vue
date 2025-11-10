@@ -99,6 +99,41 @@
           </div>
         </div>
 
+        <!-- Commits List -->
+        <div v-if="stats.total_commits > 0 && stats.commits && stats.commits.length > 0" class="bg-white rounded-lg shadow p-6 mb-8">
+          <h3 class="text-lg font-semibold mb-4">All Commits</h3>
+          <div class="space-y-3 max-h-96 overflow-y-auto">
+            <div
+              v-for="commit in stats.commits"
+              :key="commit.id"
+              class="flex items-start justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-sm font-medium text-gray-900">{{ formatCommitDate(commit.date) }}</span>
+                  <span v-if="commit.repository" class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded">
+                    {{ commit.repository }}
+                  </span>
+                </div>
+                <p class="text-sm text-gray-700 mb-2 line-clamp-2">{{ commit.message }}</p>
+                <div class="flex items-center gap-4 text-xs text-gray-500">
+                  <span class="flex items-center gap-1">
+                    <span class="text-green-600 font-semibold">+{{ commit.additions }}</span>
+                    <span>additions</span>
+                  </span>
+                  <span class="flex items-center gap-1">
+                    <span class="text-red-600 font-semibold">-{{ commit.deletions }}</span>
+                    <span>deletions</span>
+                  </span>
+                  <span class="text-gray-600">
+                    {{ commit.total_changes }} total changes
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Top Repos -->
         <div v-if="stats.total_commits > 0 && stats.top_repos && stats.top_repos.length > 0" class="bg-white rounded-lg shadow p-6 mb-8">
           <h3 class="text-lg font-semibold mb-4">Most Active Repositories</h3>
@@ -154,6 +189,7 @@ const stats = ref({
   commits_by_day: {},
   top_repos: [],
   top_languages: {},
+  commits: [],
   last_synced_at: null,
 })
 const syncing = ref(false)
@@ -219,6 +255,7 @@ const fetchStats = async () => {
       commits_by_day: response.data.commits_by_day || {},
       top_repos: response.data.top_repos || [],
       top_languages: response.data.top_languages || {},
+      commits: response.data.commits || [],
       last_synced_at: response.data.last_synced_at || null,
     }
     
@@ -312,6 +349,29 @@ const logout = async () => {
 const formatDate = (dateString) => {
   if (!dateString) return ''
   return new Date(dateString).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+const formatCommitDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  
+  // Check if it's today
+  if (date.toDateString() === today.toDateString()) {
+    return 'Today'
+  }
+  // Check if it's yesterday
+  if (date.toDateString() === yesterday.toDateString()) {
+    return 'Yesterday'
+  }
+  // Otherwise return formatted date
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
     month: 'short',
     day: 'numeric',
   })
