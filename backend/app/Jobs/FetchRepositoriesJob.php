@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\Commit;
 use App\Models\Repository;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
@@ -10,18 +9,16 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class FetchCommitsJob implements ShouldQueue
+class FetchRepositoriesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(
-        public User $user,
-        public Repository $repository
+        public User $user
     ) {}
 
     public function handle(): void
@@ -29,9 +26,6 @@ class FetchCommitsJob implements ShouldQueue
         try {
             // Decrypt the GitHub token
             $githubToken = Crypt::decryptString($this->user->github_token);
-            
-            // Calculate date range (last 7 days)
-            $weekAgo = Carbon::now()->subDays(7);
             
             // Get authenticated GitHub user
             $githubUser = $this->getGitHubUser($githubToken);
@@ -42,55 +36,44 @@ class FetchCommitsJob implements ShouldQueue
             
             $username = $githubUser['login'];
             
-            // Parse repository name to get owner and repo name
-            $repoParts = explode('/', $this->repository->repo_name);
-            if (count($repoParts) !== 2) {
-                Log::error("Invalid repository name format: {$this->repository->repo_name}");
-                return;
-            }
+            // Get user's repositories
+            $repositories = $this->getRepositories($githubToken, $username);
             
-            $owner = $repoParts[0];
-            $repo = $repoParts[1];
+            $syncedRepos = 0;
             
-            // Get commits for this repository from the last 7 days
-            $commits = $this->getCommits($githubToken, $owner, $repo, $username, $weekAgo);
-            
-            $syncedCommits = 0;
-            
-            // Sync commits (without stats initially)
-            foreach ($commits as $commit) {
-                $commitDate = Carbon::parse($commit['commit']['author']['date']);
-                
-                // Double-check the date is within our range
-                if ($commitDate->lt($weekAgo)) {
+            // Process each repository
+            foreach ($repositories as $repo) {
+                // Skip archived repositories
+                if ($repo['archived'] ?? false) {
                     continue;
                 }
-                
-                // Create commit record without stats initially
-                $commitRecord = Commit::updateOrCreate(
+
+                // Sync repository
+                $repository = Repository::updateOrCreate(
                     [
                         'user_id' => $this->user->id,
-                        'repo_id' => $this->repository->id,
-                        'date' => $commitDate->format('Y-m-d'),
-                        'message' => $commit['commit']['message'],
+                        'repo_name' => $repo['full_name'],
                     ],
                     [
-                        'additions' => 0,
-                        'deletions' => 0,
-                        'total_changes' => 0,
+                        'repo_url' => $repo['html_url'],
+                        'language' => $repo['language'] ?? null,
+                        'last_commit_date' => now(),
                     ]
                 );
                 
-                // Dispatch job to fetch stats for this commit
-                FetchCommitStatsJob::dispatch($this->user, $this->repository, $commit['sha'], $commitRecord->id);
+                // Dispatch job to fetch commits for this repository
+                FetchCommitsJob::dispatch($this->user, $repository);
                 
-                $syncedCommits++;
+                $syncedRepos++;
             }
             
-            Log::info("Successfully synced {$syncedCommits} commits for repository ID: {$this->repository->id}. Dispatched jobs to fetch stats.");
+            // Update user's last_synced_at
+            $this->user->update(['last_synced_at' => now()]);
+            
+            Log::info("Successfully synced {$syncedRepos} repositories for user ID: {$this->user->id}. Dispatched jobs to fetch commits.");
             
         } catch (\Exception $e) {
-            Log::error("Error syncing commits for repository ID: {$this->repository->id}", [
+            Log::error("Error syncing repositories for user ID: {$this->user->id}", [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -126,50 +109,42 @@ class FetchCommitsJob implements ShouldQueue
     }
     
     /**
-     * Get commits for a repository
+     * Get user's repositories
      */
-    private function getCommits(string $token, string $owner, string $repo, string $author, Carbon $since): array
+    private function getRepositories(string $token, string $username): array
     {
-        $commits = [];
+        $repositories = [];
         $page = 1;
         $perPage = 100;
         
         do {
             try {
                 $response = Http::withToken($token)
-                    ->get("https://api.github.com/repos/{$owner}/{$repo}/commits", [
-                        'author' => $author,
-                        'since' => $since->toIso8601String(),
+                    ->get('https://api.github.com/user/repos', [
+                        'type' => 'all',
+                        'sort' => 'updated',
+                        'direction' => 'desc',
                         'per_page' => $perPage,
                         'page' => $page,
                     ]);
+
+                    Log::info(json_encode($response->json()));
                 
                 if ($response->successful()) {
-                    $pageCommits = $response->json();
-                    
-                    if (empty($pageCommits)) {
-                        break;
-                    }
-                    
-                    $commits = array_merge($commits, $pageCommits);
+                    $pageRepos = $response->json();
+                    $repositories = array_merge($repositories, $pageRepos);
                     
                     // Check if there are more pages
                     $linkHeader = $response->header('Link');
                     $hasNextPage = $linkHeader && strpos($linkHeader, 'rel="next"') !== false;
                     
-                    if (!$hasNextPage || count($pageCommits) < $perPage) {
+                    if (!$hasNextPage || count($pageRepos) < $perPage) {
                         break;
                     }
                     
                     $page++;
                 } else {
-                    // 404 means repo doesn't exist or no access, 422 means no commits
-                    if ($response->status() === 404 || $response->status() === 422) {
-                        break;
-                    }
-                    
-                    Log::error("GitHub API error getting commits", [
-                        'repo' => "{$owner}/{$repo}",
+                    Log::error("GitHub API error getting repositories", [
                         'status' => $response->status(),
                         'body' => $response->body(),
                     ]);
@@ -180,14 +155,12 @@ class FetchCommitsJob implements ShouldQueue
                 usleep(200000); // 0.2 seconds between pages
                 
             } catch (\Exception $e) {
-                Log::error("Exception getting commits", [
-                    'repo' => "{$owner}/{$repo}",
-                    'error' => $e->getMessage(),
-                ]);
+                Log::error("Exception getting repositories", ['error' => $e->getMessage()]);
                 break;
             }
         } while (true);
         
-        return $commits;
+        return $repositories;
     }
 }
+

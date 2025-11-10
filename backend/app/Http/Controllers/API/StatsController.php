@@ -87,8 +87,8 @@ class StatsController extends Controller
     {
         $user = Auth::user();
         
-        // Dispatch the job to fetch commits from GitHub
-        \App\Jobs\FetchCommitsJob::dispatch($user);
+        // Dispatch the job to fetch repositories from GitHub
+        \App\Jobs\FetchRepositoriesJob::dispatch($user);
         
         return response()->json([
             'message' => 'Sync initiated. Your commits are being fetched from GitHub. This may take a few moments.',

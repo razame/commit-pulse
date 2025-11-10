@@ -66,18 +66,23 @@
             :value="stats.total_commits"
             icon="📊"
             color="bg-blue-500"
+            fontSize="text-3xl"
           />
           <StatCard
             title="Lines Added"
             :value="(stats.total_additions || 0).toLocaleString()"
-            icon="➕"
+            icon="+"
             color="bg-green-500"
+            textColor="text-white"
+            fontSize="text-5xl"
           />
           <StatCard
             title="Lines Removed"
             :value="(stats.total_deletions || 0).toLocaleString()"
-            icon="➖"
-            color="bg-red-500"
+            icon="-"
+            color="bg-green-500"
+            textColor="text-white"
+            fontSize="text-5xl"
           />
         </div>
 
@@ -247,9 +252,30 @@ const syncData = async () => {
   try {
     syncing.value = true
     error.value = null
-    // Direct API call to backend
+    
+    // Get CSRF token from cookie
+    const getCsrfToken = () => {
+      const name = 'XSRF-TOKEN'
+      const cookies = document.cookie.split(';')
+      for (let cookie of cookies) {
+        const [key, value] = cookie.trim().split('=')
+        if (key === name) {
+          return decodeURIComponent(value)
+        }
+      }
+      return null
+    }
+    
+    const csrfToken = getCsrfToken()
+    
+    // CSRF cookie is automatically fetched by axios interceptor
+    // Direct API call to backend with CSRF token in headers
     // Session-based authentication via cookies (configured in main.js)
-    const response = await axios.post('/api/sync', {})
+    const response = await axios.post('/api/sync', {}, {
+      headers: {
+        'X-XSRF-TOKEN': csrfToken
+      }
+    })
     
     // Show success message
     if (response.data?.message) {

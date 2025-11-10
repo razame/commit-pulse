@@ -2,7 +2,7 @@
 
 namespace App\Console;
 
-use App\Jobs\FetchCommitsJob;
+use App\Jobs\FetchRepositoriesJob;
 use App\Jobs\GenerateWeeklyStatsJob;
 use App\Jobs\SendWeeklyDigestEmail;
 use App\Models\User;
@@ -19,7 +19,7 @@ class Kernel extends ConsoleKernel
         $schedule->call(function () {
             User::whereNotNull('github_token')->chunk(100, function ($users) {
                 foreach ($users as $user) {
-                    FetchCommitsJob::dispatch($user);
+                    FetchRepositoriesJob::dispatch($user);
                 }
             });
         })->daily();
